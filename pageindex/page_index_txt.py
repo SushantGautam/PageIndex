@@ -133,29 +133,30 @@ def window_text_with_overlap(text, window_size=5000, overlap=500):
 
 def merge_overlapping_sections(sections):
     """
-    Merge sections that overlap or are very close to each other.
+    Remove duplicate sections that have the same or very similar positions.
+    Note: This function is designed to handle sections detected from overlapping windows,
+    not to flatten hierarchical structures. Sections at different levels are kept separate.
     """
     if not sections:
         return []
     
-    # Sort by start position
-    sorted_sections = sorted(sections, key=lambda x: x['char_start'])
+    # Sort by start position, then by level
+    sorted_sections = sorted(sections, key=lambda x: (x['char_start'], x.get('level', 1)))
     
-    merged = [sorted_sections[0]]
+    merged = []
+    seen_positions = set()
     
-    for current in sorted_sections[1:]:
-        last = merged[-1]
+    for section in sorted_sections:
+        # Create a position key that's unique enough to detect duplicates
+        # but allows for hierarchy (same start, different levels)
+        position_key = (section['char_start'], section.get('level', 1), section.get('title', ''))
         
-        # If current overlaps with last, merge them
-        if current['char_start'] <= last['char_end']:
-            # Keep the section with lower level (higher in hierarchy)
-            if current.get('level', 999) < last.get('level', 999):
-                merged[-1] = current
-                merged[-1]['char_end'] = max(last['char_end'], current['char_end'])
-            else:
-                merged[-1]['char_end'] = max(last['char_end'], current['char_end'])
-        else:
-            merged.append(current)
+        # Skip if we've seen this exact section before
+        if position_key in seen_positions:
+            continue
+        
+        seen_positions.add(position_key)
+        merged.append(section)
     
     return merged
 
