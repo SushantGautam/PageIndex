@@ -41,6 +41,11 @@ def truncate_text_to_token_limit(text, max_tokens, model=None):
         
     Returns:
         Truncated text that fits within the token limit
+        
+    Note:
+        If truncation occurs, the text will be cut at the token boundary,
+        which may result in incomplete sentences or phrases. The LLM will
+        receive only the beginning portion of the original text up to max_tokens.
     """
     if not text or max_tokens is None:
         return text
@@ -59,6 +64,7 @@ def truncate_text_to_token_limit(text, max_tokens, model=None):
     # Truncate tokens and decode back to text
     truncated_tokens = tokens[:max_tokens]
     truncated_text = enc.decode(truncated_tokens)
+    logging.warning(f"Text truncated from {len(tokens)} to {max_tokens} tokens")
     return truncated_text
 
 def ChatGPT_API_with_finish_reason(model, prompt, api_key=CHATGPT_API_KEY, chat_history=None):
