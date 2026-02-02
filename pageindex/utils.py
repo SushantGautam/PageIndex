@@ -22,9 +22,13 @@ CHATGPT_API_KEY = os.getenv("CHATGPT_API_KEY")
 def count_tokens(text, model=None):
     if not text:
         return 0
-    enc = tiktoken.encoding_for_model(model)
-    tokens = enc.encode(text)
-    return len(tokens)
+    try:
+        # Works only for OpenAI models
+        enc = tiktoken.encoding_for_model(model)
+    except Exception:
+        # Fallback for Qwen, Mistral, LLaMA, etc.
+        enc = tiktoken.get_encoding("cl100k_base")
+    return len(enc.encode(text))
 
 def ChatGPT_API_with_finish_reason(model, prompt, api_key=CHATGPT_API_KEY, chat_history=None):
     max_retries = 10
