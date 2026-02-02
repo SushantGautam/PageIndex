@@ -40,7 +40,7 @@ if __name__ == "__main__":
     parser.add_argument('--thinning-threshold', type=int, default=5000,
                       help='Minimum token threshold for thinning (markdown only)')
     parser.add_argument('--summary-token-threshold', type=int, default=200,
-                      help='Token threshold for generating summaries (markdown and text only)')
+                      help='Token threshold for generating summaries (applies to all file types)')
     
     # Text specific arguments
     parser.add_argument('--window-size', type=int, default=5000,

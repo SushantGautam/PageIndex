@@ -13,16 +13,44 @@ async def detect_semantic_sections(text, model=None, max_input_tokens=None):
     Use LLM to detect semantic sections (headings and subheadings) in unstructured text.
     Returns a list of sections with their titles, levels, and character positions.
     """
-    # Split text into chunks if it exceeds max_input_tokens
-    if max_input_tokens:
-        chunks = split_text_into_chunks(text, max_input_tokens, model, overlap_tokens=500)
-    else:
+    # For large texts, we need to process in chunks
+    # Use character-based chunking to maintain accurate position tracking
+    text_length = len(text)
+    
+    # If text is small enough, process it all at once
+    if not max_input_tokens or count_tokens(text, model=model) <= max_input_tokens:
         chunks = [text]
+        chunk_positions = [0]
+    else:
+        # Chunk by characters, not tokens, to maintain accurate position tracking
+        # Estimate chars per token (~4) and chunk accordingly
+        estimated_chars_per_chunk = max_input_tokens * 3  # Conservative estimate
+        overlap_chars = 500  # Character overlap between chunks
+        
+        chunks = []
+        chunk_positions = []
+        start = 0
+        
+        while start < text_length:
+            end = min(start + estimated_chars_per_chunk, text_length)
+            
+            # Try to break at sentence boundary if not at the end
+            if end < text_length:
+                search_start = max(end - 200, start)
+                sentence_endings = [m.end() for m in re.finditer(r'[.!?]\s+', text[search_start:end])]
+                if sentence_endings:
+                    end = search_start + sentence_endings[-1]
+            
+            chunks.append(text[start:end])
+            chunk_positions.append(start)
+            
+            if end >= text_length:
+                break
+            start = end - overlap_chars
     
     all_sections = []
-    current_char_offset = 0
     
-    for chunk_idx, chunk in enumerate(chunks):
+    for chunk_idx, (chunk, chunk_start_pos) in enumerate(zip(chunks, chunk_positions)):
         prompt = f"""You are an expert document analyzer. Your task is to identify semantic sections (headings and subheadings) in the following unstructured text.
 
 Analyze the text and identify natural section boundaries, titles, and their hierarchical levels (1 for main sections, 2 for subsections, 3 for sub-subsections, etc.).
@@ -62,18 +90,13 @@ Directly return ONLY the JSON array, no other text."""
         if not isinstance(sections, list):
             sections = []
         
-        # Adjust character positions to account for the overall text position
+        # Adjust character positions to be relative to the original text
         for section in sections:
             if 'char_start' in section and 'char_end' in section:
-                section['char_start'] += current_char_offset
-                section['char_end'] += current_char_offset
+                section['char_start'] += chunk_start_pos
+                section['char_end'] += chunk_start_pos
                 section['chunk_idx'] = chunk_idx
                 all_sections.append(section)
-        
-        # Update offset for next chunk
-        if chunk_idx < len(chunks) - 1:
-            # Account for overlap - find the actual position where next chunk starts
-            current_char_offset += len(chunk)
     
     # If no sections were detected, create a single section for the entire text
     if not all_sections:
