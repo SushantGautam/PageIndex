@@ -51,6 +51,10 @@ def split_text_into_chunks(text, max_tokens, model=None, overlap_tokens=100):
     if not text or max_tokens is None:
         return [text] if text else []
     
+    # Validate overlap_tokens to prevent infinite loops and ensure proper chunking
+    if overlap_tokens >= max_tokens:
+        raise ValueError(f"overlap_tokens ({overlap_tokens}) must be less than max_tokens ({max_tokens})")
+    
     try:
         # Works only for OpenAI models
         enc = tiktoken.encoding_for_model(model)
@@ -676,8 +680,8 @@ async def generate_node_summary(node, model=None, max_input_tokens=None):
         response = await ChatGPT_API_async(model, prompt)
         return response
     
-    # If multiple chunks, summarize each chunk then combine
-    chunk_summaries = []
+    # If multiple chunks, summarize each chunk then combine (concurrently for better performance)
+    chunk_summary_tasks = []
     for i, chunk in enumerate(chunks):
         prompt = f"""You are given part {i+1} of {len(chunks)} of a document section. Generate a concise description of the main points in this part.
 
@@ -685,8 +689,9 @@ async def generate_node_summary(node, model=None, max_input_tokens=None):
         
         Directly return the description, do not include any other text.
         """
-        summary = await ChatGPT_API_async(model, prompt)
-        chunk_summaries.append(summary)
+        chunk_summary_tasks.append(ChatGPT_API_async(model, prompt))
+    
+    chunk_summaries = await asyncio.gather(*chunk_summary_tasks)
     
     # Combine chunk summaries
     combined_prompt = f"""You are given {len(chunk_summaries)} summaries of different parts of the same document section. Combine these into a single coherent description of the main points.
@@ -744,7 +749,7 @@ def generate_doc_description(structure, model=None, max_input_tokens=None):
     
     # If only one chunk, process normally
     if len(chunks) == 1:
-        prompt = f"""Your are an expert in generating descriptions for a document.
+        prompt = f"""You are an expert in generating descriptions for a document.
         You are given a structure of a document. Your task is to generate a one-sentence description for the document, which makes it easy to distinguish the document from other documents.
             
         Document Structure: {chunks[0]}
@@ -755,7 +760,9 @@ def generate_doc_description(structure, model=None, max_input_tokens=None):
         return response
     
     # If multiple chunks, describe each chunk then combine
-    # Note: This is synchronous, so we process sequentially
+    # Note: This function is synchronous and processes chunks sequentially.
+    # For large documents with multiple chunks, consider using an async version
+    # with concurrent processing (similar to generate_node_summary) for better performance.
     chunk_descriptions = []
     for i, chunk in enumerate(chunks):
         prompt = f"""You are given part {i+1} of {len(chunks)} of a document structure. Generate a brief description of this part.
