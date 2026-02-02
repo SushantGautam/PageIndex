@@ -30,6 +30,37 @@ def count_tokens(text, model=None):
         enc = tiktoken.get_encoding("cl100k_base")
     return len(enc.encode(text))
 
+def truncate_text_to_token_limit(text, max_tokens, model=None):
+    """
+    Truncate text to fit within a maximum token limit.
+    
+    Args:
+        text: The text to truncate
+        max_tokens: Maximum number of tokens allowed
+        model: The model to use for tokenization
+        
+    Returns:
+        Truncated text that fits within the token limit
+    """
+    if not text or max_tokens is None:
+        return text
+    
+    try:
+        # Works only for OpenAI models
+        enc = tiktoken.encoding_for_model(model)
+    except Exception:
+        # Fallback for Qwen, Mistral, LLaMA, etc.
+        enc = tiktoken.get_encoding("cl100k_base")
+    
+    tokens = enc.encode(text)
+    if len(tokens) <= max_tokens:
+        return text
+    
+    # Truncate tokens and decode back to text
+    truncated_tokens = tokens[:max_tokens]
+    truncated_text = enc.decode(truncated_tokens)
+    return truncated_text
+
 def ChatGPT_API_with_finish_reason(model, prompt, api_key=CHATGPT_API_KEY, chat_history=None):
     max_retries = 10
     client = openai.OpenAI(api_key=api_key)
@@ -606,10 +637,16 @@ def add_node_text_with_labels(node, pdf_pages):
     return
 
 
-async def generate_node_summary(node, model=None):
+async def generate_node_summary(node, model=None, max_input_tokens=None):
+    node_text = node.get('text', '')
+    
+    # Truncate text if it exceeds max_input_tokens
+    if max_input_tokens:
+        node_text = truncate_text_to_token_limit(node_text, max_input_tokens, model)
+    
     prompt = f"""You are given a part of a document, your task is to generate a description of the partial document about what are main points covered in the partial document.
 
-    Partial Document Text: {node['text']}
+    Partial Document Text: {node_text}
     
     Directly return the description, do not include any other text.
     """
@@ -617,9 +654,9 @@ async def generate_node_summary(node, model=None):
     return response
 
 
-async def generate_summaries_for_structure(structure, model=None):
+async def generate_summaries_for_structure(structure, model=None, max_input_tokens=None):
     nodes = structure_to_list(structure)
-    tasks = [generate_node_summary(node, model=model) for node in nodes]
+    tasks = [generate_node_summary(node, model=model, max_input_tokens=max_input_tokens) for node in nodes]
     summaries = await asyncio.gather(*tasks)
     
     for node, summary in zip(nodes, summaries):
@@ -650,11 +687,17 @@ def create_clean_structure_for_description(structure):
         return structure
 
 
-def generate_doc_description(structure, model=None):
+def generate_doc_description(structure, model=None, max_input_tokens=None):
+    structure_str = str(structure)
+    
+    # Truncate structure string if it exceeds max_input_tokens
+    if max_input_tokens:
+        structure_str = truncate_text_to_token_limit(structure_str, max_input_tokens, model)
+    
     prompt = f"""Your are an expert in generating descriptions for a document.
     You are given a structure of a document. Your task is to generate a one-sentence description for the document, which makes it easy to distinguish the document from other documents.
         
-    Document Structure: {structure}
+    Document Structure: {structure_str}
     
     Directly return the description, do not include any other text.
     """

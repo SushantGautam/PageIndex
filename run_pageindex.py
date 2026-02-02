@@ -18,6 +18,8 @@ if __name__ == "__main__":
                       help='Maximum number of pages per node (PDF only)')
     parser.add_argument('--max-tokens-per-node', type=int, default=20000,
                       help='Maximum number of tokens per node (PDF only)')
+    parser.add_argument('--max-input-tokens', type=int, default=25000,
+                      help='Maximum number of input tokens to send to LLM (applies to both PDF and Markdown)')
 
     parser.add_argument('--if-add-node-id', type=str, default='yes',
                       help='Whether to add node id to the node')
@@ -57,6 +59,7 @@ if __name__ == "__main__":
             toc_check_page_num=args.toc_check_pages,
             max_page_num_each_node=args.max_pages_per_node,
             max_token_num_each_node=args.max_tokens_per_node,
+            max_input_tokens=args.max_input_tokens,
             if_add_node_id=args.if_add_node_id,
             if_add_node_summary=args.if_add_node_summary,
             if_add_doc_description=args.if_add_doc_description,
@@ -101,7 +104,8 @@ if __name__ == "__main__":
             'if_add_node_summary': args.if_add_node_summary,
             'if_add_doc_description': args.if_add_doc_description,
             'if_add_node_text': args.if_add_node_text,
-            'if_add_node_id': args.if_add_node_id
+            'if_add_node_id': args.if_add_node_id,
+            'max_input_tokens': args.max_input_tokens
         }
         
         # Load config with defaults from config.yaml
@@ -116,7 +120,8 @@ if __name__ == "__main__":
             model=opt.model,
             if_add_doc_description=opt.if_add_doc_description,
             if_add_node_text=opt.if_add_node_text,
-            if_add_node_id=opt.if_add_node_id
+            if_add_node_id=opt.if_add_node_id,
+            max_input_tokens=opt.max_input_tokens
         ))
         
         print('Parsing done, saving to file...')
