@@ -30,25 +30,26 @@ def count_tokens(text, model=None):
         enc = tiktoken.get_encoding("cl100k_base")
     return len(enc.encode(text))
 
-def truncate_text_to_token_limit(text, max_tokens, model=None):
+def split_text_into_chunks(text, max_tokens, model=None, overlap_tokens=100):
     """
-    Truncate text to fit within a maximum token limit.
+    Split text into chunks that fit within a maximum token limit.
     
     Args:
-        text: The text to truncate
-        max_tokens: Maximum number of tokens allowed
+        text: The text to split
+        max_tokens: Maximum number of tokens allowed per chunk
         model: The model to use for tokenization
+        overlap_tokens: Number of tokens to overlap between chunks for context continuity
         
     Returns:
-        Truncated text that fits within the token limit
+        List of text chunks, each fitting within the token limit
         
     Note:
-        If truncation occurs, the text will be cut at the token boundary,
-        which may result in incomplete sentences or phrases. The LLM will
-        receive only the beginning portion of the original text up to max_tokens.
+        If text exceeds max_tokens, it will be split into multiple chunks with
+        slight overlap to maintain context. This allows processing the entire text
+        without information loss.
     """
     if not text or max_tokens is None:
-        return text
+        return [text] if text else []
     
     try:
         # Works only for OpenAI models
@@ -59,13 +60,25 @@ def truncate_text_to_token_limit(text, max_tokens, model=None):
     
     tokens = enc.encode(text)
     if len(tokens) <= max_tokens:
-        return text
+        return [text]
     
-    # Truncate tokens and decode back to text
-    truncated_tokens = tokens[:max_tokens]
-    truncated_text = enc.decode(truncated_tokens)
-    logging.warning(f"Text truncated from {len(tokens)} to {max_tokens} tokens")
-    return truncated_text
+    # Split into chunks with overlap
+    chunks = []
+    start = 0
+    while start < len(tokens):
+        end = min(start + max_tokens, len(tokens))
+        chunk_tokens = tokens[start:end]
+        chunk_text = enc.decode(chunk_tokens)
+        chunks.append(chunk_text)
+        
+        # Move to next chunk with overlap
+        if end < len(tokens):
+            start = end - overlap_tokens
+        else:
+            break
+    
+    logging.info(f"Text split into {len(chunks)} chunks ({len(tokens)} total tokens, {max_tokens} tokens per chunk)")
+    return chunks
 
 def ChatGPT_API_with_finish_reason(model, prompt, api_key=CHATGPT_API_KEY, chat_history=None):
     max_retries = 10
@@ -646,18 +659,45 @@ def add_node_text_with_labels(node, pdf_pages):
 async def generate_node_summary(node, model=None, max_input_tokens=None):
     node_text = node.get('text', '')
     
-    # Truncate text if it exceeds max_input_tokens
+    # Split text into chunks if it exceeds max_input_tokens
     if max_input_tokens:
-        node_text = truncate_text_to_token_limit(node_text, max_input_tokens, model)
+        chunks = split_text_into_chunks(node_text, max_input_tokens, model)
+    else:
+        chunks = [node_text]
     
-    prompt = f"""You are given a part of a document, your task is to generate a description of the partial document about what are main points covered in the partial document.
+    # If only one chunk, process normally
+    if len(chunks) == 1:
+        prompt = f"""You are given a part of a document, your task is to generate a description of the partial document about what are main points covered in the partial document.
 
-    Partial Document Text: {node_text}
+        Partial Document Text: {chunks[0]}
+        
+        Directly return the description, do not include any other text.
+        """
+        response = await ChatGPT_API_async(model, prompt)
+        return response
     
-    Directly return the description, do not include any other text.
+    # If multiple chunks, summarize each chunk then combine
+    chunk_summaries = []
+    for i, chunk in enumerate(chunks):
+        prompt = f"""You are given part {i+1} of {len(chunks)} of a document section. Generate a concise description of the main points in this part.
+
+        Part {i+1} Text: {chunk}
+        
+        Directly return the description, do not include any other text.
+        """
+        summary = await ChatGPT_API_async(model, prompt)
+        chunk_summaries.append(summary)
+    
+    # Combine chunk summaries
+    combined_prompt = f"""You are given {len(chunk_summaries)} summaries of different parts of the same document section. Combine these into a single coherent description of the main points.
+
+    Part Summaries:
+    {chr(10).join(f"Part {i+1}: {s}" for i, s in enumerate(chunk_summaries))}
+    
+    Directly return the combined description, do not include any other text.
     """
-    response = await ChatGPT_API_async(model, prompt)
-    return response
+    final_summary = await ChatGPT_API_async(model, combined_prompt)
+    return final_summary
 
 
 async def generate_summaries_for_structure(structure, model=None, max_input_tokens=None):
@@ -696,19 +736,47 @@ def create_clean_structure_for_description(structure):
 def generate_doc_description(structure, model=None, max_input_tokens=None):
     structure_str = str(structure)
     
-    # Truncate structure string if it exceeds max_input_tokens
+    # Split structure string into chunks if it exceeds max_input_tokens
     if max_input_tokens:
-        structure_str = truncate_text_to_token_limit(structure_str, max_input_tokens, model)
+        chunks = split_text_into_chunks(structure_str, max_input_tokens, model)
+    else:
+        chunks = [structure_str]
     
-    prompt = f"""Your are an expert in generating descriptions for a document.
-    You are given a structure of a document. Your task is to generate a one-sentence description for the document, which makes it easy to distinguish the document from other documents.
+    # If only one chunk, process normally
+    if len(chunks) == 1:
+        prompt = f"""Your are an expert in generating descriptions for a document.
+        You are given a structure of a document. Your task is to generate a one-sentence description for the document, which makes it easy to distinguish the document from other documents.
+            
+        Document Structure: {chunks[0]}
         
-    Document Structure: {structure_str}
+        Directly return the description, do not include any other text.
+        """
+        response = ChatGPT_API(model, prompt)
+        return response
     
-    Directly return the description, do not include any other text.
+    # If multiple chunks, describe each chunk then combine
+    # Note: This is synchronous, so we process sequentially
+    chunk_descriptions = []
+    for i, chunk in enumerate(chunks):
+        prompt = f"""You are given part {i+1} of {len(chunks)} of a document structure. Generate a brief description of this part.
+
+        Part {i+1} Structure: {chunk}
+        
+        Directly return the description, do not include any other text.
+        """
+        description = ChatGPT_API(model, prompt)
+        chunk_descriptions.append(description)
+    
+    # Combine chunk descriptions
+    combined_prompt = f"""You are given {len(chunk_descriptions)} descriptions of different parts of the same document structure. Combine these into a single one-sentence description that distinguishes this document from others.
+
+    Part Descriptions:
+    {chr(10).join(f"Part {i+1}: {d}" for i, d in enumerate(chunk_descriptions))}
+    
+    Directly return the combined one-sentence description, do not include any other text.
     """
-    response = ChatGPT_API(model, prompt)
-    return response
+    final_description = ChatGPT_API(model, combined_prompt)
+    return final_description
 
 
 def reorder_dict(data, key_order):

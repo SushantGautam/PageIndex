@@ -19,8 +19,8 @@ if __name__ == "__main__":
     parser.add_argument('--max-tokens-per-node', type=int, default=20000,
                       help='Maximum number of tokens per node (PDF only)')
     parser.add_argument('--max-input-tokens', type=int, default=25000,
-                      help='Maximum number of input tokens to send to LLM. If input exceeds this limit, '
-                           'it will be truncated (applies to both PDF and Markdown)')
+                      help='Maximum number of input tokens per LLM request. If input exceeds this limit, '
+                           'it will be split into multiple chunks and processed separately (applies to both PDF and Markdown)')
 
     parser.add_argument('--if-add-node-id', type=str, default='yes',
                       help='Whether to add node id to the node')
